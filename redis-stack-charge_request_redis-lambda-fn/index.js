@@ -9,7 +9,9 @@ const MAX_EXPIRATION = 60 * 60 * 24 * 30;
 const memcachedClient = new memcached(`${process.env.ENDPOINT}:${process.env.PORT}`);
 exports.chargeRequestRedis = async function (input) {
     const redisClient = await getRedisClient();
+    console.time('balance-check');
     var remainingBalance = await getBalanceRedis(redisClient, KEY);
+    console.timeEnd('balance-check');
     var charges = getCharges();
     const isAuthorized = authorizeRequest(remainingBalance, charges);
     if (!isAuthorized) {
@@ -55,7 +57,9 @@ exports.resetMemcached = async function () {
 };
 exports.chargeRequestMemcached = async function (input) {
     var remainingBalance = await getBalanceMemcached(KEY);
+    console.time('balance-check');
     const charges = getCharges();
+    console.timeEnd('balance-check');
     const isAuthorized = authorizeRequest(remainingBalance, charges);
     if (!authorizeRequest(remainingBalance, charges)) {
         return {
