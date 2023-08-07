@@ -12,6 +12,8 @@ exports.chargeRequestRedis = async function (input) {
     console.time('balance-check');
     var remainingBalance = await getBalanceRedis(redisClient, KEY);
     console.timeEnd('balance-check');
+    // Uncomment the following line to introduce a 700ms delay for concurrency testing:
+    //await new Promise(resolve => setTimeout(resolve, 700));
     var charges = getCharges();
     const isAuthorized = authorizeRequest(remainingBalance, charges);
     if (!isAuthorized) {
