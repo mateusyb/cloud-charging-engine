@@ -9,13 +9,14 @@ const MAX_EXPIRATION = 60 * 60 * 24 * 30;
 const memcachedClient = new memcached(`${process.env.ENDPOINT}:${process.env.PORT}`);
 exports.chargeRequestRedis = async function (input) {
     const redisClient = await getRedisClient();
+    await redisClient.watch(KEY);
     console.time('balance-check');
-    var remainingBalance = await getBalanceRedis(redisClient, KEY);
+    let remainingBalance = await getBalanceRedis(redisClient, KEY);
     console.timeEnd('balance-check');
     // Uncomment the following line to introduce a 700ms delay for concurrency testing:
     //await new Promise(resolve => setTimeout(resolve, 700));
-    var charges = getCharges();
-    const isAuthorized = authorizeRequest(remainingBalance, charges);
+    let charges = getCharges();
+    let isAuthorized = authorizeRequest(remainingBalance, charges);
     if (!isAuthorized) {
         return {
             remainingBalance,
@@ -23,7 +24,17 @@ exports.chargeRequestRedis = async function (input) {
             charges: 0,
         };
     }
-    remainingBalance = await chargeRedis(redisClient, KEY, charges);
+    // chargeResult will be null if there is a collision and Redis is unable to execute
+    // the charge (decrby) operation
+    const chargeResult = await chargeRedis(redisClient, KEY, charges);
+    if (chargeResult !== null) {
+        remainingBalance = chargeResult[0];
+    }
+    else {
+        remainingBalance = await getBalanceRedis(redisClient, KEY);
+        isAuthorized = false;
+        charges = 0;
+    }
     await disconnectRedis(redisClient);
     return {
         remainingBalance,
@@ -47,7 +58,7 @@ exports.resetRedis = async function () {
     return ret;
 };
 exports.resetMemcached = async function () {
-    var ret = new Promise((resolve, reject) => {
+    let ret = new Promise((resolve, reject) => {
         memcachedClient.set(KEY, DEFAULT_BALANCE, MAX_EXPIRATION, (res, error) => {
             if (error)
                 resolve(res);
@@ -58,7 +69,7 @@ exports.resetMemcached = async function () {
     return ret;
 };
 exports.chargeRequestMemcached = async function (input) {
-    var remainingBalance = await getBalanceMemcached(KEY);
+    let remainingBalance = await getBalanceMemcached(KEY);
     console.time('balance-check');
     const charges = getCharges();
     console.timeEnd('balance-check');
@@ -121,7 +132,8 @@ async function getBalanceRedis(redisClient, key) {
     return parseInt(res || "0");
 }
 async function chargeRedis(redisClient, key, charges) {
-    return util.promisify(redisClient.decrby).bind(redisClient).call(redisClient, key, charges);
+    const multi = await redisClient.multi().decrby(key, charges);
+    return util.promisify(multi.exec).bind(multi).call(multi);
 }
 async function getBalanceMemcached(key) {
     return new Promise((resolve, reject) => {
